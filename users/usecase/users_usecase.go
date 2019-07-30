@@ -36,3 +36,13 @@ func (u *userUsecase) DeleteUserById(id int64) error {
 func (u *userUsecase) UpdateUserById(id int64, data *models.Users) error {
 	return nil
 }
+
+func (u *userUsecase) GetUserByUsername(username string) (*models.Users, error) {
+	res, err := u.userRepo.GetUserByUsername(username)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}

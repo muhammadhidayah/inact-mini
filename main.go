@@ -1,9 +1,10 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 
+	_middleware "github.com/muhammadhidayah/inact-mini/middleware"
 	_userHttpDeliver "github.com/muhammadhidayah/inact-mini/users/delivery/http"
 	_userRepo "github.com/muhammadhidayah/inact-mini/users/repository"
 	_userUsecase "github.com/muhammadhidayah/inact-mini/users/usecase"
@@ -14,20 +15,22 @@ func main() {
 	dbConn, err := setting.Connect()
 
 	if err != nil {
-		fmt.Println("Oooppss Can't Connect to Database")
-		return
+		log.Fatal(err.Error())
 	}
 
 	userRepo := _userRepo.NewPgUsersRepository(dbConn)
 
 	userUA := _userUsecase.NewUserUsecase(userRepo)
 
-	mux := http.DefaultServeMux
-	var handler http.Handler = mux
-	_userHttpDeliver.NewUserHandler(mux, userUA)
+	customMux := new(_middleware.DefaultMiddleware)
+	customMux.RegisterMiddlewareDefault(customMux.CORS)
+	customMux.RegisterMiddlewareDefault(_middleware.MiddlewareJWTAuth)
+
+	_userHttpDeliver.NewUserHandler(customMux, userUA)
+
 	server := new(http.Server)
-	server.Addr = ":9000"
-	server.Handler = handler
+	server.Addr = ":9001"
+	server.Handler = customMux
 	server.ListenAndServe()
 
 }

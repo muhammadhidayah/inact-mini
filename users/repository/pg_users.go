@@ -18,12 +18,19 @@ func NewPgUsersRepository(Conn *sql.DB) users.Repository {
 	return &pgUsersRepository{Conn}
 }
 
-func (m *pgUsersRepository) fetchData(qry string) ([]*models.Users, error) {
-	rows, err := m.Conn.Query(qry)
+func (m *pgUsersRepository) fetchData(qry string, args ...interface{}) ([]*models.Users, error) {
+	rows, err := m.Conn.Query(qry, args...)
 
 	if err != nil {
 		return nil, err
 	}
+
+	defer func() {
+		errClose := rows.Close()
+		if errClose != nil {
+			fmt.Println(errClose.Error())
+		}
+	}()
 
 	result := make([]*models.Users, 0)
 	for rows.Next() {
@@ -43,9 +50,9 @@ func (m *pgUsersRepository) fetchData(qry string) ([]*models.Users, error) {
 }
 
 func (m *pgUsersRepository) GetUserById(id int64) (resp *models.Users, err error) {
-	qryString := fmt.Sprintf(`SELECT * FROM ts_org_person WHERE id = %d`, id)
+	qryString := `SELECT * FROM ts_org_person WHERE id = $1`
 
-	res, err := m.fetchData(qryString)
+	res, err := m.fetchData(qryString, id)
 
 	if err != nil {
 		return nil, err
@@ -61,8 +68,15 @@ func (m *pgUsersRepository) GetUserById(id int64) (resp *models.Users, err error
 }
 
 func (m *pgUsersRepository) DeleteUserById(id int64) error {
-	_, err := m.Conn.Query("DELETE FROM ts_org_person WHERE id = $1", id)
-	return err
+	stmt, err := m.Conn.Prepare("DELETE FROM ts_org_person WHERE id = $1")
+
+	if err != nil {
+		return err
+	}
+
+	_, errExec := stmt.Exec(id)
+
+	return errExec
 }
 
 func (m *pgUsersRepository) UpdateUserById(id int64, data *models.Users) error {
@@ -87,4 +101,20 @@ func (m *pgUsersRepository) InsertUser(data *models.Users) (int, error) {
 	}
 
 	return lastInsertID, nil
+}
+
+func (m *pgUsersRepository) GetUserByUsername(username string) (*models.Users, error) {
+	qryString := fmt.Sprintf(`SELECT * FROM ts_org_person where username = $1`)
+
+	res, err := m.fetchData(qryString, username)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(res) > 0 {
+		return res[0], nil
+	} else {
+		return nil, errors.New("")
+	}
 }
