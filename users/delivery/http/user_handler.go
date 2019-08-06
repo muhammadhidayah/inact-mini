@@ -27,6 +27,7 @@ func NewUserHandler(mux *_middleware.DefaultMiddleware, ua users.Usecase) {
 	mux.HandleFunc("/user", middleware.ApplyMiddleware(handler.FetchUser, middleware.Method("GET")))
 	mux.HandleFunc("/postuser", middleware.ApplyMiddleware(handler.Store, middleware.Method("POST")))
 	mux.HandleFunc("/login", middleware.ApplyMiddleware(handler.Login, middleware.Method("POST")))
+	mux.HandleFunc("/auth/refreshtoken", middleware.ApplyMiddleware(handler.RefreshTokenJWT, middleware.Method("POST")))
 }
 
 func (uh *UserHandler) FetchUser(w http.ResponseWriter, r *http.Request) {
@@ -77,28 +78,37 @@ func (uh *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := _middleware.MyClaims{
-		StandardClaims: jwt.StandardClaims{
-			Issuer:    _middleware.APPLICATION_NAME,
-			ExpiresAt: time.Now().Add(_middleware.LOGIN_EXPIRATION_DURATION).Unix(),
-		},
-		ID:       userInfo["id"].(string),
-		Username: userInfo["username"].(string),
-	}
-
-	token := jwt.NewWithClaims(
-		_middleware.JWT_SIGNING_METHOD,
-		claims,
-	)
-
-	signedToken, err := token.SignedString(_middleware.JWT_SIGNATURE_KEY)
-
+	// This is for token jwt set in localstorage
+	signedToken, err := generateToken(false, userInfo)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tokenString, _ := json.Marshal(_middleware.M{"token": signedToken})
+
+	// This is for token jwt set in cookie
+	signedTokenCookie, err := generateToken(true, userInfo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	tokenString, _ := json.Marshal(_middleware.M{"token": signedToken})
+	cookieName := "RefreshTokenJWT"
+	c := &http.Cookie{}
+
+	if storedCookie, _ := r.Cookie(cookieName); storedCookie != nil {
+		c = storedCookie
+	}
+
+	if c.Value == "" {
+		c = &http.Cookie{}
+		c.Name = cookieName
+		c.Value = signedTokenCookie
+		c.Expires = time.Now().Add(2 * time.Hour)
+		c.HttpOnly = true
+		http.SetCookie(w, c)
+	}
+
 	w.Write([]byte(tokenString))
 }
 
@@ -130,4 +140,53 @@ func (uh *UserHandler) authenticationUser(username string, password string) (boo
 	}
 
 	return false, nil
+}
+
+func (uh *UserHandler) RefreshTokenJWT(w http.ResponseWriter, r *http.Request) {
+	userInfo := r.Context().Value("userInfo").(jwt.MapClaims)
+
+	data := _middleware.M{
+		"id":       userInfo["id"],
+		"username": userInfo["username"],
+	}
+
+	signedToken, err := generateToken(false, data)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	tokenString, _ := json.Marshal(_middleware.M{"token": signedToken})
+	w.Write([]byte(tokenString))
+}
+
+func generateToken(islong bool, data _middleware.M) (string, error) {
+	duration := _middleware.LOGIN_EXPIRATION_DURATION
+
+	if islong {
+		duration = _middleware.COOKIE_EXPIRATION_DURATION
+	}
+
+	claims := _middleware.MyClaims{
+		StandardClaims: jwt.StandardClaims{
+			Issuer:    _middleware.APPLICATION_NAME,
+			ExpiresAt: time.Now().Add(duration).Unix(),
+		},
+		ID:       data["id"].(string),
+		Username: data["username"].(string),
+	}
+
+	token := jwt.NewWithClaims(
+		_middleware.JWT_SIGNING_METHOD,
+		claims,
+	)
+
+	signedToken, err := token.SignedString(_middleware.JWT_SIGNATURE_KEY)
+
+	if err != nil {
+		return "", err
+	}
+
+	return signedToken, nil
 }

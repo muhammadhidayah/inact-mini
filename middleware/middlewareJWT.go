@@ -13,7 +13,8 @@ import (
 type M map[string]interface{}
 
 var APPLICATION_NAME = "INACT Cloud"
-var LOGIN_EXPIRATION_DURATION = time.Duration(1) * time.Hour
+var LOGIN_EXPIRATION_DURATION = time.Duration(3) * time.Minute
+var COOKIE_EXPIRATION_DURATION = time.Duration(2) * time.Hour
 var JWT_SIGNING_METHOD = jwt.SigningMethodHS256
 var JWT_SIGNATURE_KEY = []byte("s3cr337 0f 1n4c7")
 
@@ -31,13 +32,19 @@ func MiddlewareJWTAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		authHeader := r.Header.Get("Authorization")
-		if !strings.Contains(authHeader, "Bearer") {
-			http.Error(w, "Invalid token", http.StatusBadRequest)
-			return
-		}
+		var tokenString string
+		storedCookie, _ := r.Cookie("RefreshTokenJWT")
+		if storedCookie != nil {
+			tokenString = storedCookie.Value
+		} else {
+			authHeader := r.Header.Get("Authorization")
+			if !strings.Contains(authHeader, "Bearer") {
+				http.Error(w, "Invalid token", http.StatusBadRequest)
+				return
+			}
 
-		tokenString := strings.Replace(authHeader, "Bearer ", "", -1)
+			tokenString = strings.Replace(authHeader, "Bearer ", "", -1)
+		}
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			if method, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
